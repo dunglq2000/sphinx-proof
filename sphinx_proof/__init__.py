@@ -76,13 +76,39 @@ def copy_asset_files(app: Sphinx, exc: Union[bool, Exception]):
     if exc is None:
         for path in asset_files:
             copy_asset(path, str(Path(app.outdir).joinpath("_static").absolute()))
+            # if needed, load css to memory,
+            # adjust font-weight according to user's setting in config
+            # and write to output static file
+            if app.config.proof_number_weight or app.config.proof_title_weight:
+                # only if at least one of the two options is set
+                path = str(Path(app.outdir).joinpath("_static", "proof.css").absolute())
+                with open(path, "r", encoding="utf-8") as f:
+                    css_content = f.read()
+                if app.config.proof_number_weight:
+                    css_content = css_content.replace(
+                        "div.proof > p.admonition-title > span.caption-number {\n    font-weight: var(--pst-admonition-font-weight-heading);\n}",  # noqa: E501
+                        f"div.proof > p.admonition-title > span.caption-number {{\n    font-weight: {app.config.proof_number_weight};\n}}",  # noqa: E501
+                    )
+                if app.config.proof_title_weight:
+                    css_content = css_content.replace(
+                        "div.proof > p.admonition-title {\n    font-weight: var(--pst-admonition-font-weight-heading);\n}",  # noqa: E501
+                        f"div.proof > p.admonition-title {{\n    font-weight: {app.config.proof_title_weight};\n}}",  # noqa: E501
+                    )
+                out_path = Path(app.outdir).joinpath("_static", os.path.basename(path))
+                with open(out_path, "w", encoding="utf-8") as f:
+                    f.write(css_content)
 
 
 def setup(app: Sphinx) -> Dict[str, Any]:
 
     app.add_config_value("proof_minimal_theme", False, "html")
+    app.add_config_value("prf_realtyp_to_countertyp", {}, "html")
+    app.add_config_value("proof_title_format", " (%t)", "html")
+    app.add_config_value("proof_number_weight", "", "html")
+    app.add_config_value("proof_title_weight", "", "html")
 
     app.add_css_file("proof.css")
+    app.connect("config-inited", check_config_values)
     app.connect("build-finished", copy_asset_files)
     app.connect("config-inited", init_numfig)
     app.connect("env-purge-doc", purge_proofs)
@@ -118,3 +144,64 @@ def setup(app: Sphinx) -> Dict[str, Any]:
         "parallel_read_safe": True,
         "parallel_write_safe": True,
     }
+
+
+def check_config_values(app: Sphinx, config: Config) -> None:
+    """Check configuration values."""
+    # Check if proof_minimal_theme is boolean
+    if not isinstance(config.proof_minimal_theme, bool):
+        logger.warning(
+            "'proof_minimal_theme' config value must be a boolean. "
+            "Using default value False."
+        )
+        config.proof_minimal_theme = False
+
+    # Check of prf_realtyp_to_countertyp is a dictionary
+    if not isinstance(config.prf_realtyp_to_countertyp, dict):
+        logger.warning(
+            "'prf_realtyp_to_countertyp' config value must be a dictionary. "
+            "Using default empty dictionary."
+        )
+        config.prf_realtyp_to_countertyp = {}
+    # Check if each key and each value in prf_realtyp_to_countertyp
+    # is a valid proof type
+    for key, value in config.prf_realtyp_to_countertyp.items():
+        if key not in PROOF_TYPES:
+            logger.warning(
+                f"Key '{key}' in 'prf_realtyp_to_countertyp' is not "
+                "a valid proof type. "
+                "It will be removed."
+            )
+            del config.prf_realtyp_to_countertyp[key]
+        elif value not in PROOF_TYPES:
+            logger.warning(
+                f"Value '{value}' in 'prf_realtyp_to_countertyp' is not "
+                "a valid proof type. It will be removed."
+            )
+            del config.prf_realtyp_to_countertyp[key]
+    # Check if proof_title_format is a string
+    if not isinstance(config.proof_title_format, str):
+        logger.warning(
+            "'proof_title_format' config value must be a string."
+            "Using default value ' (%t)'."
+        )
+        config.proof_title_format = " (%t)"
+    elif "%t" not in config.proof_title_format:
+        logger.warning(
+            "'proof_title_format' config value must contain the "
+            "substring '%t' to print a title."
+        )
+    # Check if proof_number_weight is a string
+    if not isinstance(config.proof_number_weight, str):
+        logger.warning(
+            "'proof_number_weight' config value must be a string. "
+            "Using default value ''."
+        )
+        config.proof_number_weight = ""
+    # Check if proof_title_weight is a string
+    if not isinstance(config.proof_title_weight, str):
+        logger.warning(
+            "'proof_title_weight' config value must be a string. "
+            "Using default value ''."
+        )
+        config.proof_title_weight = ""
